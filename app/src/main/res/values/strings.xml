@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Расписание ФКН</string>
+    <string name="group_hint">Группа</string>
+    <string name="week_ch">Числитель</string>
+    <string name="week_zn">Знаменатель</string>
+    <string name="today">сегодня</string>
+    <string name="refresh">Обновить</string>
+    <string name="settings">Настройки</string>
+    <string name="error_load">Не удалось загрузить расписание. Проверьте соединение и потяните вниз для повтора.</string>
+    <string name="today_widget_desc">Ближайшие пары на сегодня</string>
+    <string name="timer_widget_desc">Таймер до начала следующей пары</string>
+</resources>

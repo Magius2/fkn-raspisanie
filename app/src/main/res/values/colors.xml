@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="indigo">#4F46E5</color>
+    <color name="indigo_light">#818CF8</color>
+    <color name="badge_text">#FFFFFF</color>
+    <color name="tag_text">#6D6A8D</color>
+    <color name="widget_bg_light">#FFFFFF</color>
+    <color name="widget_bg_dark">#1C1B22</color>
+    <color name="widget_text_primary_light">#1C1B22</color>
+    <color name="widget_text_primary_dark">#E6E1E9</color>
+    <color name="widget_text_secondary_light">#6D6A8D</color>
+    <color name="widget_text_secondary_dark">#A9A4B8</color>
+    <color name="lesson_now_stroke">#4F46E5</color>
+</resources>
