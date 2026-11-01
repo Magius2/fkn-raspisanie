@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="widget_bg_light">#F4F2F8</color>
     <style name="WidgetText.Title">
         <item name="android:textSize">12sp</item>
         <item name="android:textColor">@color/widget_text_secondary_dark</item>
@@ -31,7 +30,7 @@
     </style>
     <style name="Theme.FknSchedule" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">@color/indigo_light</item>
-        <item name="colorOnPrimary">@color/badge_text</item>
+        <item name="colorOnPrimary">@color/on_primary_dark</item>
         <item name="colorSecondary">@color/indigo</item>
         <item name="android:statusBarColor">?attr/colorSurface</item>
         <item name="android:windowLightStatusBar">false</item>

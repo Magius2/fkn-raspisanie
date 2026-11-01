@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- «Окно» между парами: пунктирная обводка токеном — не светится в тёмной теме. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
     <solid android:color="#00000000" />
     <corners android:radius="14dp" />
-    <stroke android:width="1dp" android:color="#DDDBE6" android:dashWidth="6dp" android:dashGap="4dp" />
+    <stroke android:width="1dp" android:color="?attr/colorOutlineVariant" android:dashWidth="6dp" android:dashGap="4dp" />
 </shape>

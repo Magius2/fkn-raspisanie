@@ -79,28 +79,6 @@ object ScheduleLogic {
 
     data class Slot_(val time: String, val fromMin: Int?, val toMin: Int?)
 
-    /** «Окна» — пропуски в целый слот между парами дня. */
-    fun windowsIn(data: ScheduleData, group: String, sub: String?, week: String, dow: Int): List<Pair<IntRange, String>> {
-        val day = data.days.firstOrNull { it.dow == dow } ?: return emptyList()
-        val result = mutableListOf<Pair<IntRange, String>>()
-        var prevEnd: Int? = null
-        for (slot in day.slots) {
-            val has = slot.lessons.any { l ->
-                l.groups.contains(group) &&
-                        (l.week == "all" || l.week == week) &&
-                        (sub == null || l.sub == null || l.sub == sub)
-            }
-            if (has && prevEnd != null && slot.fromMin != null) {
-                val from = slot.fromMin!!
-                if (from - prevEnd >= 90) {
-                    result.add((prevEnd + 1)..(from - 1) to "окно")
-                }
-            }
-            if (has && slot.toMin != null) prevEnd = slot.toMin
-        }
-        return result
-    }
-
     data class NextLesson(
         val lesson: Lesson,
         val time: String,

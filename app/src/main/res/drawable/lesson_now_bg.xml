@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- «Идёт сейчас»: контейнер primary + обводка colorPrimary — работает в обеих темах. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#EEEDF8" />
+    <solid android:color="?attr/colorPrimaryContainer" />
     <corners android:radius="14dp" />
-    <stroke android:width="2dp" android:color="@color/lesson_now_stroke" />
+    <stroke android:width="2dp" android:color="?attr/colorPrimary" />
 </shape>

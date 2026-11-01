@@ -10,4 +10,62 @@
     <string name="error_load">Не удалось загрузить расписание. Проверьте соединение и потяните вниз для повтора.</string>
     <string name="today_widget_desc">Ближайшие пары на сегодня</string>
     <string name="timer_widget_desc">Таймер до начала следующей пары</string>
+
+    <!-- Список пар -->
+    <string name="window_label">Окно</string>
+    <string name="window_free">свободно</string>
+    <string name="tag_remote">дистант</string>
+    <string name="tag_now">сейчас</string>
+    <string name="no_lessons_week">На этой неделе пар нет 🎉</string>
+
+    <!-- Главный экран -->
+    <string name="week_holiday">🌴 %1$s — занятий нет</string>
+    <string name="week_current">Текущая неделя — %1$s</string>
+    <string name="week_by_calendar">" (по календарю)"</string>
+    <string name="updated_at">данные от %1$s</string>
+    <string name="offline_updated">нет связи · данные от %1$s</string>
+    <string name="group_label">Группа %1$s</string>
+    <string name="group_all_subgroups">Группа %1$s — все подгруппы</string>
+    <string name="group_subgroup">Группа %1$s — %2$d-я подгруппа</string>
+
+    <!-- Настройки -->
+    <string name="settings_notif_on">Напоминания: включены</string>
+    <string name="settings_notif_off">Напоминания: выключены</string>
+    <string name="settings_notif_no_perm">" (нет разрешения)"</string>
+    <string name="settings_lead">Напомнить за: %1$s мин</string>
+    <string name="settings_refresh">Проверить обновление расписания</string>
+    <string name="settings_lead_title">Напомнить за (минут)</string>
+
+    <!-- Виджет «Сегодня» -->
+    <string name="widget_pick_group">Выберите группу</string>
+    <string name="widget_need_data">Загрузите данные в приложении</string>
+    <string name="widget_holiday_no_lessons">🌴 Занятий нет</string>
+    <string name="widget_no_lessons">Пар больше нет 🎉</string>
+    <string name="widget_today">Сегодня</string>
+    <string name="widget_tomorrow">Завтра</string>
+    <string name="widget_in">через %1$s</string>
+    <string name="widget_group_week">Группа %1$s · %2$s</string>
+    <string name="widget_data_from">данные от %1$s</string>
+
+    <!-- Виджет-таймер -->
+    <string name="timer_no_data">Нет данных</string>
+    <string name="timer_open_app">Откройте приложение</string>
+    <string name="timer_holiday">Каникулы</string>
+    <string name="timer_no_lessons">Пар нет</string>
+    <string name="timer_rest">Отдыхайте</string>
+    <string name="timer_until_lesson">до пары · %1$s</string>
+    <string name="timer_day_group">%1$s · группа %2$s</string>
+
+    <!-- Превью виджетов в пикере -->
+    <string name="widget_preview_title">Группа 8 · числитель</string>
+    <string name="widget_preview_lesson">Дифференциальные уравнения</string>
+    <string name="widget_preview_in">2 ч 5 мин</string>
+    <string name="widget_preview_room">ауд. 414</string>
+    <string name="widget_preview_until">до пары · 10:55</string>
+
+    <!-- Уведомления -->
+    <string name="notif_channel_name">Ближайшие пары</string>
+    <string name="notif_channel_desc">Напоминания о начале пар</string>
+    <string name="notif_starting">Пара начинается</string>
+    <string name="notif_in_minutes">Через %1$d мин — %2$s</string>
 </resources>

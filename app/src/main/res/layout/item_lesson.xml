@@ -27,6 +27,8 @@
             android:id="@+id/lessonSubject"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:maxLines="2"
+            android:ellipsize="end"
             android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
             android:textColor="?android:textColorPrimary" />
 
@@ -35,6 +37,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
+            android:maxLines="1"
+            android:ellipsize="end"
             android:textAppearance="@style/TextAppearance.Material3.BodySmall"
             android:textColor="?android:textColorSecondary" />
 
@@ -43,8 +47,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
+            android:maxLines="1"
+            android:ellipsize="end"
             android:textAppearance="@style/TextAppearance.Material3.LabelSmall"
-            android:textColor="@color/tag_text"
+            android:textColor="?attr/colorOnSurfaceVariant"
             android:visibility="gone" />
     </LinearLayout>
 </LinearLayout>

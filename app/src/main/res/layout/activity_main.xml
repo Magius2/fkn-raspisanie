@@ -54,8 +54,8 @@
 
             <ImageButton
                 android:id="@+id/btnSettings"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:layout_marginStart="8dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/settings"
@@ -71,37 +71,38 @@
             android:paddingTop="2dp"
             android:paddingBottom="6dp">
 
+            <!-- Toggle на weight: на узких экранах и при крупном шрифте
+                 подписи ужимаются, а не уезжают за край. -->
             <com.google.android.material.button.MaterialButtonToggleGroup
                 android:id="@+id/weekToggle"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
                 app:singleSelection="true"
                 app:selectionRequired="true">
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/weekCh"
                     style="@style/Widget.Material3.Button.OutlinedButton"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_weight="1"
                     android:text="@string/week_ch" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/weekZn"
                     style="@style/Widget.Material3.Button.OutlinedButton"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_weight="1"
                     android:text="@string/week_zn" />
             </com.google.android.material.button.MaterialButtonToggleGroup>
 
-            <View
-                android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1" />
-
             <ImageButton
                 android:id="@+id/btnRefresh"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="8dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/refresh"
                 android:src="@drawable/ic_refresh"
@@ -133,12 +134,14 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <ProgressBar
+                    <!-- M3-индикатор вместо платформенного ProgressBar. -->
+                    <com.google.android.material.progressindicator.LinearProgressIndicator
                         android:id="@+id/progress"
-                        style="?android:attr/progressBarStyleHorizontal"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:indeterminate="true"
+                        app:indicatorColor="?attr/colorPrimary"
+                        app:trackColor="?attr/colorSurfaceVariant"
                         android:visibility="gone" />
 
                     <androidx.recyclerview.widget.RecyclerView

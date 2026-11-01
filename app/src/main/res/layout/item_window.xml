@@ -6,7 +6,7 @@
     android:orientation="horizontal"
     android:background="@drawable/window_bg"
     android:layout_marginTop="6dp"
-    android:padding="10dp">
+    android:padding="12dp">
 
     <TextView
         android:id="@+id/lessonTime"
@@ -27,6 +27,8 @@
             android:id="@+id/lessonSubject"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:ellipsize="end"
             android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
             android:textColor="?android:textColorSecondary" />
 
@@ -35,12 +37,6 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textAppearance="@style/TextAppearance.Material3.LabelSmall"
-            android:textColor="?android:textColorTertiary" />
+            android:textColor="?attr/colorOnSurfaceVariant" />
     </LinearLayout>
-
-    <TextView
-        android:id="@+id/lessonTags"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:visibility="gone" />
 </LinearLayout>

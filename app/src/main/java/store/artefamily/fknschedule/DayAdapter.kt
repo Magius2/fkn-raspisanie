@@ -12,7 +12,10 @@ import store.artefamily.fknschedule.logic.ScheduleLogic
 import store.artefamily.fknschedule.model.Lesson
 import store.artefamily.fknschedule.model.ScheduleData
 
-class DayAdapter : RecyclerView.Adapter<DayAdapter.VH>() {
+/** «Окно» — перерыв между парами не короче этого (минут). */
+private const val WINDOW_GAP_MIN = 90
+
+class DayAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private var data: ScheduleData? = null
     private var group = "1"
@@ -22,28 +25,51 @@ class DayAdapter : RecyclerView.Adapter<DayAdapter.VH>() {
     private var nowMin = -1
     private var holiday = false
 
+    /** У группы нет пар ни в один день недели — показываем пустое состояние. */
+    private var nothingThisWeek = false
+
     fun submit(d: ScheduleData, g: String, s: String?, w: String, dow: Int, nm: Int, hol: Boolean) {
-        data = d; group = g; sub = s; week = w; todayDow = dow; nowMin = nm; holiday = hol
+        data = d
+        group = g
+        sub = s
+        week = w
+        todayDow = dow
+        nowMin = nm
+        holiday = hol
+        nothingThisWeek = !hol && d.days.all { day ->
+            ScheduleLogic.lessonsFor(d, g, s, w, day.dow).isEmpty()
+        }
         notifyDataSetChanged()
     }
 
-    class VH(v: View) : RecyclerView.ViewHolder(v) {
+    class DayVH(v: View) : RecyclerView.ViewHolder(v) {
         val title: TextView = v.findViewById(R.id.dayTitle)
         val badge: TextView = v.findViewById(R.id.dayBadge)
         val list: RecyclerView = v.findViewById(R.id.dayLessons)
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
-        val v = LayoutInflater.from(parent.context).inflate(R.layout.item_day, parent, false)
-        return VH(v)
+    class EmptyVH(v: View) : RecyclerView.ViewHolder(v)
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+        val layout = if (viewType == TYPE_EMPTY) R.layout.item_empty else R.layout.item_day
+        val v = LayoutInflater.from(parent.context).inflate(layout, parent, false)
+        return if (viewType == TYPE_EMPTY) EmptyVH(v) else DayVH(v)
     }
+
+    override fun getItemViewType(pos: Int) =
+        if (nothingThisWeek) TYPE_EMPTY else TYPE_DAY
 
     override fun getItemCount(): Int {
         val d = data ?: return 0
-        return if (holiday) 0 else d.days.size
+        return when {
+            holiday -> 0
+            nothingThisWeek -> 1
+            else -> d.days.size
+        }
     }
 
-    override fun onBindViewHolder(h: VH, pos: Int) {
+    override fun onBindViewHolder(h: RecyclerView.ViewHolder, pos: Int) {
+        if (h !is DayVH) return
         val d = data ?: return
         val day = d.days[pos]
         val isToday = day.dow == todayDow
@@ -54,24 +80,28 @@ class DayAdapter : RecyclerView.Adapter<DayAdapter.VH>() {
             ContextCompat.getDrawable(h.itemView.context, R.drawable.day_today_bg)
         else null
 
+        // «Окна» между парами показываем на всех днях (как на сайте),
+        // метку «сейчас» — только для сегодняшнего.
         val lessons = ScheduleLogic.lessonsFor(d, group, sub, week, day.dow)
-        val windows = ScheduleLogic.windowsIn(d, group, sub, week, day.dow)
-
         val items = mutableListOf<Any>()
         var prevEnd: Int? = null
         for ((slot, l) in lessons) {
-            val slotObj = d.days.firstOrNull { it.dow == day.dow }?.slots?.firstOrNull { it.time == slot.time }
-            val from = slotObj?.fromMin
-            if (isToday && from != null && prevEnd != null && from - prevEnd >= 90) {
+            val from = slot.fromMin
+            if (from != null && prevEnd != null && from - prevEnd >= WINDOW_GAP_MIN) {
                 items.add(WindowItem(prevEnd, from))
             }
-            if (slotObj?.toMin != null) prevEnd = slotObj?.toMin
-            items.add(LessonItem(slot.time, l, slotObj?.fromMin, slotObj?.toMin, isToday))
+            if (slot.toMin != null) prevEnd = slot.toMin
+            items.add(LessonItem(slot.time, l, slot.fromMin, slot.toMin, isToday))
         }
 
         h.list.layoutManager = LinearLayoutManager(h.itemView.context)
-        h.list.adapter = LessonAdapter(items, nowMin, isToday)
+        h.list.adapter = LessonAdapter(items, nowMin)
         h.list.isNestedScrollingEnabled = false
+    }
+
+    companion object {
+        private const val TYPE_DAY = 0
+        private const val TYPE_EMPTY = 1
     }
 }
 
@@ -87,15 +117,15 @@ data class WindowItem(val from: Int?, val to: Int?)
 
 class LessonAdapter(
     private val items: List<Any>,
-    private val nowMin: Int,
-    private val dayIsToday: Boolean
+    private val nowMin: Int
 ) : RecyclerView.Adapter<LessonAdapter.LVH>() {
 
     class LVH(v: View) : RecyclerView.ViewHolder(v) {
         val time: TextView = v.findViewById(R.id.lessonTime)
         val subject: TextView = v.findViewById(R.id.lessonSubject)
         val meta: TextView = v.findViewById(R.id.lessonMeta)
-        val tags: TextView = v.findViewById(R.id.lessonTags)
+        // В item_window.xml этого view нет — у «окна» нет тегов.
+        val tags: TextView? = v.findViewById(R.id.lessonTags)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): LVH {
@@ -112,10 +142,10 @@ class LessonAdapter(
         val ctx = h.itemView.context
         when (val it = items[pos]) {
             is WindowItem -> {
-                h.subject.text = "Окно"
-                h.meta.text = "нет пар"
+                h.subject.text = ctx.getString(R.string.window_label)
+                h.meta.text = ctx.getString(R.string.window_free)
                 h.time.text = "—"
-                h.tags.visibility = View.GONE
+                h.tags?.visibility = View.GONE
             }
             is LessonItem -> {
                 h.time.text = it.time
@@ -127,14 +157,18 @@ class LessonAdapter(
                 h.meta.text = meta
                 h.meta.visibility = if (meta.isBlank()) View.GONE else View.VISIBLE
 
+                // «сейчас» — включая минуту окончания пары (8:00–9:35 → до 9:35)
                 val isNow = it.isToday && it.fromMin != null && it.toMin != null &&
                         nowMin >= it.fromMin && nowMin <= it.toMin
                 val tags = mutableListOf<String>()
-                if (it.lesson.isRemote) tags.add("🖥 дистанционно")
+                if (it.lesson.isRemote) tags.add(ctx.getString(R.string.tag_remote))
                 if (it.lesson.week != "all") tags.add(ScheduleLogic.weekName(it.lesson.week))
-                if (isNow) tags.add("● сейчас")
-                h.tags.text = tags.joinToString("   ")
-                h.tags.visibility = if (tags.isEmpty()) View.GONE else View.VISIBLE
+                if (isNow) tags.add(ctx.getString(R.string.tag_now))
+                val tvTags = h.tags
+                if (tvTags != null) {
+                    tvTags.text = tags.joinToString("   ")
+                    tvTags.visibility = if (tags.isEmpty()) View.GONE else View.VISIBLE
+                }
 
                 if (isNow) {
                     h.itemView.background = ContextCompat.getDrawable(ctx, R.drawable.lesson_now_bg)

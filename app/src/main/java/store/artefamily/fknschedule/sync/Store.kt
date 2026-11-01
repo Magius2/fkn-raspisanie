@@ -15,6 +15,8 @@ object Store {
     private const val FILE_DATA = "data.json"
     private const val FILE_CAL = "cal.json"
     private const val SEL = "sel"                 // "8" или "8.2"
+    private const val SEL_CHOSEN = "sel.chosen"   // пользователь сам выбрал группу (не дефолт "1")
+    private const val LAST_SYNC = "last_sync"     // epoch ms последней успешной загрузки расписания
     private const val WEEK = "week"               // ручной выбор
     private const val WEEK_ISO = "week.iso"
     const val BASE_URL = "https://raspisanie.artefamily.online"
@@ -30,6 +32,7 @@ object Store {
     fun saveData(ctx: Context, json: String) {
         ScheduleData.fromJson(json) // невалидный JSON бросит исключение ДО записи
         atomicWrite(dataFile(ctx), json)
+        prefs(ctx).edit().putLong(LAST_SYNC, System.currentTimeMillis()).apply()
     }
 
     fun saveCal(ctx: Context, json: String) {
@@ -69,6 +72,16 @@ object Store {
 
     fun getSel(ctx: Context): String = prefs(ctx).getString(SEL, "1") ?: "1"
     fun setSel(ctx: Context, v: String) = prefs(ctx).edit().putString(SEL, v).apply()
+
+    /**
+     * Пользователь сам выбирал группу? Дефолт "1" не должен молча попадать
+     * в виджеты и уведомления — до выбора они просят выбрать группу.
+     */
+    fun getSelChosen(ctx: Context): Boolean = prefs(ctx).getBoolean(SEL_CHOSEN, false)
+    fun setSelChosen(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean(SEL_CHOSEN, v).apply()
+
+    /** Время последней успешной загрузки расписания (epoch ms, 0 — никогда). */
+    fun lastSync(ctx: Context): Long = prefs(ctx).getLong(LAST_SYNC, 0L)
 
     fun getManualWeek(ctx: Context): String? {
         val w = prefs(ctx).getString(WEEK, null) ?: return null

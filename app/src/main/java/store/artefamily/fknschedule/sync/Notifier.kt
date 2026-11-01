@@ -39,8 +39,8 @@ object Notifier {
     fun ensureChannel(ctx: Context) {
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Ближайшие пары", NotificationManager.IMPORTANCE_DEFAULT)
-                .apply { description = "Напоминания о начале пар" }
+            NotificationChannel(CHANNEL_ID, ctx.getString(R.string.notif_channel_name), NotificationManager.IMPORTANCE_DEFAULT)
+                .apply { description = ctx.getString(R.string.notif_channel_desc) }
         )
     }
 
@@ -49,7 +49,8 @@ object Notifier {
         return now.hour * 60 + now.minute
     }
 
-    private fun canPost(ctx: Context): Boolean =
+    /** Можно ли постить уведомления (разрешение на API 33+). Используется и настройками. */
+    fun canPost(ctx: Context): Boolean =
         Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(
             ctx, Manifest.permission.POST_NOTIFICATIONS
         ) == PackageManager.PERMISSION_GRANTED
@@ -123,7 +124,8 @@ object Notifier {
             ctx, 0, Intent(ctx, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val title = if (startsIn <= 0) "Пара начинается" else "Через $startsIn мин — ${next.lesson.subject}"
+        val title = if (startsIn <= 0) ctx.getString(R.string.notif_starting)
+        else ctx.getString(R.string.notif_in_minutes, startsIn, next.lesson.subject)
         val text = buildString {
             append(next.time)
             next.lesson.roomDisplay().takeIf { it.isNotBlank() }?.let { append(" · $it") }

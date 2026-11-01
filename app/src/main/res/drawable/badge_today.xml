@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Бейдж «сегодня» — токен colorPrimary, в тёмной теме становится светлым индиго. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="@color/indigo" />
+    <solid android:color="?attr/colorPrimary" />
     <corners android:radius="20dp" />
 </shape>

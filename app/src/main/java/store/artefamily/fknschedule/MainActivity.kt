@@ -40,6 +40,12 @@ class MainActivity : AppCompatActivity() {
     /** Защита от рекурсии: выставление кнопок недели не должно считаться выбором пользователя. */
     private var bindingWeek = false
 
+    /** Разрешение на уведомления спрашиваем ПОСЛЕ первого рендера, а не на первом кадре. */
+    private var notifPermissionAsked = false
+
+    /** Сеть молча провалилась, но есть кэш — показываем в weekHint, а не Toast. */
+    private var offline = false
+
     private val notifPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) Notifier.scheduleNext(this)
@@ -52,12 +58,6 @@ class MainActivity : AppCompatActivity() {
 
         Notifier.ensureChannel(this)
         SyncWorker.enqueue(this)
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
 
         binding.recycler.layoutManager = LinearLayoutManager(this)
         binding.recycler.adapter = DayAdapter()
@@ -66,6 +66,7 @@ class MainActivity : AppCompatActivity() {
             override fun onItemClick(p: android.widget.AdapterView<*>, v: View?, pos: Int, id: Long) {
                 val value = groupValues.getOrNull(pos) ?: return
                 Store.setSel(this@MainActivity, value)
+                Store.setSelChosen(this@MainActivity, true) // группа выбрана осознанно
                 binding.groupSel.dismissDropDown()
                 render()
                 refreshWidgets()
@@ -149,6 +150,8 @@ class MainActivity : AppCompatActivity() {
             // 3) Перечитываем с диска (IO, не на главном потоке) и перерисовываем.
             data = withContext(Dispatchers.IO) { Store.loadData(this@MainActivity) }
             cal = withContext(Dispatchers.IO) { Store.loadCal(this@MainActivity) }
+            // Тихий провал: кэш есть, сети нет — не пугаем Toast, помечаем в weekHint.
+            offline = !okData
             loading = false
             binding.swipe.isRefreshing = false
             binding.progress.visibility = View.GONE
@@ -174,21 +177,25 @@ class MainActivity : AppCompatActivity() {
         for (g in d.groups) {
             val n = d.subgroups[g] ?: 0
             if (n == 0) {
-                labels.add("Группа $g"); values.add(g)
+                labels.add(getString(R.string.group_label, g)); values.add(g)
             } else {
-                labels.add("Группа $g — все подгруппы"); values.add(g)
+                labels.add(getString(R.string.group_all_subgroups, g)); values.add(g)
                 for (i in 1..n) {
-                    labels.add("Группа $g — $i-я подгруппа"); values.add("$g.$i")
+                    labels.add(getString(R.string.group_subgroup, g, i)); values.add("$g.$i")
                 }
             }
         }
         groupLabels = labels
         groupValues = values
 
-        // Сохранённый выбор мог исчезнуть после обновления расписания — откатываемся на группу.
+        // Сохранённый выбор мог исчезнуть после обновления расписания — откатываемся
+        // на группу и требуем выбрать заново (подгруппа-то пропала).
         val pos = values.indexOf(sel).let { if (it >= 0) it else 0 }
         val current = values.getOrNull(pos) ?: "1"
-        if (current != sel) Store.setSel(this, current)
+        if (current != sel) {
+            Store.setSel(this, current)
+            Store.setSelChosen(this, false)
+        }
 
         binding.groupSel.setAdapter(
             ArrayAdapter(this, android.R.layout.simple_list_item_1, labels)
@@ -217,10 +224,9 @@ class MainActivity : AppCompatActivity() {
 
         binding.weekHint.text = buildString {
             if (holiday != null) {
-                append("🌴 $holiday — занятий нет")
+                append(getString(R.string.week_holiday, holiday))
             } else {
-                append("Текущая неделя — ")
-                append(ScheduleLogic.weekNameAccusative(auto))
+                append(getString(R.string.week_current, ScheduleLogic.weekNameAccusative(auto)))
                 if (manual != null && manual != auto) {
                     append(" · показан ")
                     append(ScheduleLogic.weekNameAccusative(manual))
@@ -228,22 +234,47 @@ class MainActivity : AppCompatActivity() {
                 // Тип недели на сегодня задан календарём (каникулы, переносы),
                 // а не чётностью ISO — говорим об этом честно.
                 if (ScheduleLogic.resolveDay(ScheduleLogic.today(), cal).src != "авто") {
-                    append(" (по календарю)")
+                    append(getString(R.string.week_by_calendar))
                 }
             }
             append(" · ")
             append(ScheduleLogic.weekName(shownWeek))
+            // Свежесть данных: «данные от 14:32», а при тихом офлайне — «нет связи · …».
+            val sync = Store.lastSync(this@MainActivity)
+            if (sync > 0L) {
+                append(" · ")
+                append(
+                    if (offline) getString(R.string.offline_updated, TodayWidgetProvider.formatSyncAge(sync))
+                    else getString(R.string.updated_at, TodayWidgetProvider.formatSyncAge(sync))
+                )
+            }
         }
 
         val adapter = binding.recycler.adapter as DayAdapter
         adapter.submit(d, group, sub, shownWeek, todayDow, nowMin, holiday != null)
+
+        // Разрешение на уведомления — после первого рендера: пользователь видит
+        // расписание, а не системный диалог поверх пустого экрана.
+        if (!notifPermissionAsked) {
+            notifPermissionAsked = true
+            if (Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
     }
 
     private fun showSettings() {
+        // Показываем реальное состояние: включено в приложении ≠ разрешено системой.
+        val notifOn = Store.getNotificationsEnabled(this)
+        val permMissing = !Notifier.canPost(this)
         val items = arrayOf(
-            "Напоминания: ${if (Store.getNotificationsEnabled(this)) "включены" else "выключены"}",
-            "Напомнить за: ${Store.getNotifMinutes(this)} мин",
-            "Проверить обновление расписания"
+            getString(if (notifOn) R.string.settings_notif_on else R.string.settings_notif_off) +
+                    if (notifOn && permMissing) getString(R.string.settings_notif_no_perm) else "",
+            getString(R.string.settings_lead, Store.getNotifMinutes(this).toString()),
+            getString(R.string.settings_refresh)
         )
         android.app.AlertDialog.Builder(this)
             .setTitle(R.string.settings)
@@ -251,11 +282,7 @@ class MainActivity : AppCompatActivity() {
                 when (which) {
                     0 -> {
                         Store.setNotificationsEnabled(this, !Store.getNotificationsEnabled(this))
-                        if (Store.getNotificationsEnabled(this) &&
-                            Build.VERSION.SDK_INT >= 33 &&
-                            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
-                            PackageManager.PERMISSION_GRANTED
-                        ) {
+                        if (Store.getNotificationsEnabled(this) && !Notifier.canPost(this)) {
                             notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                         } else {
                             Notifier.scheduleNext(this)
@@ -266,12 +293,15 @@ class MainActivity : AppCompatActivity() {
                         val options = arrayOf("5", "10", "15", "30", "60")
                         val current = options.indexOf(Store.getNotifMinutes(this).toString())
                         android.app.AlertDialog.Builder(this)
-                            .setTitle("Напомнить за (минут)")
+                            .setTitle(R.string.settings_lead_title)
                             .setSingleChoiceItems(options, current) { dlg, i ->
                                 Store.setNotifMinutes(this, options[i].toInt())
                                 Notifier.scheduleNext(this)
                                 dlg.dismiss()
                             }
+                            // И после выбора, и после отмены — назад в настройки,
+                            // а не в пустоту (диалог закрывался «в никуда»).
+                            .setOnDismissListener { showSettings() }
                             .show()
                     }
                     2 -> refresh(true)
