@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Правила для Android 12+ (dataExtractionRules): как и в backup_rules,
-  переносим только настройки, кэш расписания не тащим.
+  переносим только настройки, кэш расписания не тащим (include-only).
 -->
 <data-extraction-rules>
     <cloud-backup>

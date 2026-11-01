@@ -45,7 +45,18 @@ class DayAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
     class DayVH(v: View) : RecyclerView.ViewHolder(v) {
         val title: TextView = v.findViewById(R.id.dayTitle)
         val badge: TextView = v.findViewById(R.id.dayBadge)
-        val list: RecyclerView = v.findViewById(R.id.dayLessons)
+        private val lessonAdapter = LessonAdapter()
+
+        init {
+            // Менеджер и адаптер — один раз на ViewHolder: раньше каждый
+            // onBindViewHolder создавал их заново (классика вложенных RecyclerView).
+            val list: RecyclerView = v.findViewById(R.id.dayLessons)
+            list.layoutManager = LinearLayoutManager(v.context)
+            list.adapter = lessonAdapter
+            list.isNestedScrollingEnabled = false
+        }
+
+        fun submit(items: List<Any>, nowMin: Int) = lessonAdapter.submit(items, nowMin)
     }
 
     class EmptyVH(v: View) : RecyclerView.ViewHolder(v)
@@ -94,9 +105,7 @@ class DayAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
             items.add(LessonItem(slot.time, l, slot.fromMin, slot.toMin, isToday))
         }
 
-        h.list.layoutManager = LinearLayoutManager(h.itemView.context)
-        h.list.adapter = LessonAdapter(items, nowMin)
-        h.list.isNestedScrollingEnabled = false
+        h.submit(items, nowMin)
     }
 
     companion object {
@@ -115,10 +124,16 @@ data class LessonItem(
 
 data class WindowItem(val from: Int?, val to: Int?)
 
-class LessonAdapter(
-    private val items: List<Any>,
-    private val nowMin: Int
-) : RecyclerView.Adapter<LessonAdapter.LVH>() {
+class LessonAdapter : RecyclerView.Adapter<LessonAdapter.LVH>() {
+
+    private var items: List<Any> = emptyList()
+    private var nowMin = -1
+
+    fun submit(items: List<Any>, nowMin: Int) {
+        this.items = items
+        this.nowMin = nowMin
+        notifyDataSetChanged()
+    }
 
     class LVH(v: View) : RecyclerView.ViewHolder(v) {
         val time: TextView = v.findViewById(R.id.lessonTime)
@@ -129,12 +144,13 @@ class LessonAdapter(
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): LVH {
-        val layout = if (viewType == 1) R.layout.item_window else R.layout.item_lesson
+        val layout = if (viewType == TYPE_WINDOW) R.layout.item_window else R.layout.item_lesson
         val v = LayoutInflater.from(parent.context).inflate(layout, parent, false)
         return LVH(v)
     }
 
-    override fun getItemViewType(pos: Int) = if (items[pos] is WindowItem) 1 else 0
+    override fun getItemViewType(pos: Int) =
+        if (items[pos] is WindowItem) TYPE_WINDOW else TYPE_LESSON
 
     override fun getItemCount() = items.size
 
@@ -179,5 +195,10 @@ class LessonAdapter(
                 }
             }
         }
+    }
+
+    companion object {
+        private const val TYPE_LESSON = 0
+        private const val TYPE_WINDOW = 1
     }
 }

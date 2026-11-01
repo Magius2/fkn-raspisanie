@@ -33,8 +33,7 @@ class MainActivity : AppCompatActivity() {
     private var cal: CalData? = null
     private var loading = false
 
-    /** Метки в выпадающем списке и их значения ("8", "8.2") — по одному индексу. */
-    private var groupLabels: List<String> = emptyList()
+    /** Значения выпадающего списка ("8", "8.2") — по индексу. */
     private var groupValues: List<String> = emptyList()
 
     /** Защита от рекурсии: выставление кнопок недели не должно считаться выбором пользователя. */
@@ -109,9 +108,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshWidgets() {
-        TodayWidgetProvider.updateAll(this)
-        TimerWidgetProvider.updateAll(this)
-        Notifier.scheduleNext(this)
+        // RemoteViews/AlarmManager безопасны вне главного потока, а здесь
+        // читаются и парсятся data.json/cal.json — уводим в IO.
+        scope.launch(Dispatchers.IO) {
+            TodayWidgetProvider.updateAll(this@MainActivity)
+            TimerWidgetProvider.updateAll(this@MainActivity)
+            Notifier.scheduleNext(this@MainActivity)
+        }
     }
 
     private fun refresh(force: Boolean) {
@@ -139,7 +142,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             // 2) Сеть: оба файла параллельно, а не друг за другом.
-            val (okData, okCal) = withContext(Dispatchers.IO) {
+            val (okData, _) = withContext(Dispatchers.IO) {
                 coroutineScope {
                     val d = async { fetchAndSave("${Store.BASE_URL}/data.json") { Store.saveData(this@MainActivity, it) } }
                     val c = async { fetchAndSave("${Store.BASE_URL}/cal.json") { Store.saveCal(this@MainActivity, it) } }
@@ -161,7 +164,10 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this@MainActivity, R.string.error_load, Toast.LENGTH_LONG).show()
                 return@launch
             }
-            if (okData || okCal) refreshWidgets()
+            // Безусловно: будильники и виджеты обязаны жить даже при полном
+            // офлайне (холодный старт после force-stop без сети — раньше
+            // цепочка тиков оставалась мёртвой до первого успешного sync).
+            refreshWidgets()
             setupControls()
             binding.toolbar.subtitle = "${d.title} · ${d.subtitle}"
             render()
@@ -185,7 +191,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        groupLabels = labels
         groupValues = values
 
         // Сохранённый выбор мог исчезнуть после обновления расписания — откатываемся
@@ -228,8 +233,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 append(getString(R.string.week_current, ScheduleLogic.weekNameAccusative(auto)))
                 if (manual != null && manual != auto) {
-                    append(" · показан ")
-                    append(ScheduleLogic.weekNameAccusative(manual))
+                    append(getString(R.string.week_shown, ScheduleLogic.weekNameAccusative(manual)))
                 }
                 // Тип недели на сегодня задан календарём (каникулы, переносы),
                 // а не чётностью ISO — говорим об этом честно.
@@ -237,8 +241,6 @@ class MainActivity : AppCompatActivity() {
                     append(getString(R.string.week_by_calendar))
                 }
             }
-            append(" · ")
-            append(ScheduleLogic.weekName(shownWeek))
             // Свежесть данных: «данные от 14:32», а при тихом офлайне — «нет связи · …».
             val sync = Store.lastSync(this@MainActivity)
             if (sync > 0L) {
@@ -273,7 +275,7 @@ class MainActivity : AppCompatActivity() {
         val items = arrayOf(
             getString(if (notifOn) R.string.settings_notif_on else R.string.settings_notif_off) +
                     if (notifOn && permMissing) getString(R.string.settings_notif_no_perm) else "",
-            getString(R.string.settings_lead, Store.getNotifMinutes(this).toString()),
+            getString(R.string.settings_lead, Store.getNotifMinutes(this)),
             getString(R.string.settings_refresh)
         )
         android.app.AlertDialog.Builder(this)
@@ -287,7 +289,7 @@ class MainActivity : AppCompatActivity() {
                         } else {
                             Notifier.scheduleNext(this)
                         }
-                        showSettings()
+                        reopenSettings()
                     }
                     1 -> {
                         val options = arrayOf("5", "10", "15", "30", "60")
@@ -301,12 +303,17 @@ class MainActivity : AppCompatActivity() {
                             }
                             // И после выбора, и после отмены — назад в настройки,
                             // а не в пустоту (диалог закрывался «в никуда»).
-                            .setOnDismissListener { showSettings() }
+                            .setOnDismissListener { reopenSettings() }
                             .show()
                     }
                     2 -> refresh(true)
                 }
             }
             .show()
+    }
+
+    /** Активити могли уничтожить (поворот экрана), пока диалог был открыт. */
+    private fun reopenSettings() {
+        if (!isFinishing && !isDestroyed) showSettings()
     }
 }

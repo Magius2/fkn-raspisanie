@@ -36,6 +36,8 @@
             android:id="@+id/lessonMeta"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:ellipsize="end"
             android:textAppearance="@style/TextAppearance.Material3.LabelSmall"
             android:textColor="?attr/colorOnSurfaceVariant" />
     </LinearLayout>

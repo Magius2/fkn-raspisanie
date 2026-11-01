@@ -30,7 +30,9 @@ class TimerWidgetProvider : AppWidgetProvider() {
         fun updateAll(ctx: Context) {
             val mgr = AppWidgetManager.getInstance(ctx)
             val ids = mgr.getAppWidgetIds(ComponentName(ctx, TimerWidgetProvider::class.java))
-            for (id in ids) mgr.updateAppWidget(id, render(ctx))
+            if (ids.isEmpty()) return
+            val views = render(ctx) // один раз на все инстансы
+            for (id in ids) mgr.updateAppWidget(id, views)
         }
 
         private fun render(ctx: Context): RemoteViews {
@@ -84,13 +86,14 @@ class TimerWidgetProvider : AppWidgetProvider() {
 
             if (next.daysAhead == 0 && next.startsInMin != null) {
                 views.setTextViewText(R.id.wt_big, TodayWidgetProvider.formatMin(next.startsInMin))
-                views.setTextViewText(R.id.wt_label, ctx.getString(R.string.timer_until_lesson, next.time))
-                views.setTextViewText(R.id.wt_sub, next.lesson.subject + stale)
+                views.setTextViewText(R.id.wt_label, ctx.getString(R.string.timer_until_lesson, next.time) + stale)
+                views.setTextViewText(R.id.wt_sub, next.lesson.subject)
             } else {
-                val dayLabel = if (next.daysAhead == 1) "завтра" else TodayWidgetProvider.dayName(next.dow)
+                val dayLabel = if (next.daysAhead == 1) ctx.getString(R.string.widget_tomorrow).lowercase()
+                else TodayWidgetProvider.dayName(next.dow)
                 views.setTextViewText(R.id.wt_big, dayLabel.replaceFirstChar { it.uppercase() })
-                views.setTextViewText(R.id.wt_label, ctx.getString(R.string.timer_day_group, next.time, group))
-                views.setTextViewText(R.id.wt_sub, next.lesson.subject + stale)
+                views.setTextViewText(R.id.wt_label, ctx.getString(R.string.timer_day_group, next.time, group) + stale)
+                views.setTextViewText(R.id.wt_sub, next.lesson.subject)
             }
             return views
         }

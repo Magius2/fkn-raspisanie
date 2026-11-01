@@ -12,6 +12,8 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import store.artefamily.fknschedule.widget.TodayWidgetProvider
 import store.artefamily.fknschedule.widget.TimerWidgetProvider
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.TimeUnit
@@ -77,14 +79,19 @@ fun fetchAndSave(url: String, save: (String) -> Unit): Boolean {
                 Log.w(TAG, "HTTP ${conn.responseCode}: $url")
                 return false
             }
-            // Защита от гигантского ответа (скомпрометированный сервер):
-            // не читаем его целиком в память.
+            // Защита от гигантского ответа (скомпрометированный сервер).
+            // Content-Length бывает нет при chunked/gzip — поэтому реальный
+            // лимит держим при чтении потока, а не только по заголовку.
             if (conn.contentLengthLong > MAX_JSON_BYTES) {
                 Log.w(TAG, "ответ слишком большой, пропускаем: $url")
                 return false
             }
-            val text = conn.inputStream.bufferedReader(Charsets.UTF_8).readText()
-            if (text.length > MAX_JSON_BYTES) return false
+            val bytes = readBounded(conn.inputStream, MAX_JSON_BYTES.toInt())
+            if (bytes == null) {
+                Log.w(TAG, "ответ слишком большой, пропускаем: $url")
+                return false
+            }
+            val text = String(bytes, Charsets.UTF_8)
             save(text) // невалидный JSON бросит исключение — кэш не тронут
             true
         } finally {
@@ -94,4 +101,19 @@ fun fetchAndSave(url: String, save: (String) -> Unit): Boolean {
         Log.w(TAG, "не удалось скачать $url", e)
         false
     }
+}
+
+/** Читает поток с жёстким лимитом байт; null — лимит превышен. */
+private fun readBounded(input: InputStream, maxBytes: Int): ByteArray? {
+    val buf = ByteArray(64 * 1024)
+    val out = ByteArrayOutputStream()
+    input.use { stream ->
+        while (true) {
+            val n = stream.read(buf)
+            if (n < 0) break
+            if (out.size() + n > maxBytes) return null
+            out.write(buf, 0, n)
+        }
+    }
+    return out.toByteArray()
 }

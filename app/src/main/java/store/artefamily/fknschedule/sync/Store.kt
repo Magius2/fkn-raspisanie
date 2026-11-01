@@ -17,6 +17,7 @@ object Store {
     private const val SEL = "sel"                 // "8" или "8.2"
     private const val SEL_CHOSEN = "sel.chosen"   // пользователь сам выбрал группу (не дефолт "1")
     private const val LAST_SYNC = "last_sync"     // epoch ms последней успешной загрузки расписания
+    private const val LAST_NOTE_ID = "last_note"  // id последнего показанного напоминания
     private const val WEEK = "week"               // ручной выбор
     private const val WEEK_ISO = "week.iso"
     const val BASE_URL = "https://raspisanie.artefamily.online"
@@ -107,4 +108,14 @@ object Store {
 
     fun getNotifMinutes(ctx: Context): Int = prefs(ctx).getInt("notif_min", 15)
     fun setNotifMinutes(ctx: Context, v: Int) = prefs(ctx).edit().putInt("notif_min", v).apply()
+
+    /** id последнего показанного напоминания — чтобы снять его, когда окно прошло. */
+    fun setLastNoteId(ctx: Context, id: Int) = prefs(ctx).edit().putInt(LAST_NOTE_ID, id).apply()
+
+    /** Достать и забыть id прошлого напоминания (0 — не было). */
+    fun takeLastNoteId(ctx: Context): Int {
+        val v = prefs(ctx).getInt(LAST_NOTE_ID, 0)
+        if (v != 0) prefs(ctx).edit().remove(LAST_NOTE_ID).apply()
+        return v
+    }
 }

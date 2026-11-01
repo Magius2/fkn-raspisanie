@@ -11,7 +11,7 @@ data class Lesson(
     val sub: String?         // подгруппа, null = вся группа
 ) {
     val isRemote: Boolean
-        get() = room?.let { Regex("(^|,\\s*)ДО(\\s*,|$)").containsMatchIn(it) } ?: false
+        get() = room?.let { REMOTE.containsMatchIn(it) } ?: false
 
     fun roomDisplay(): String {
         val rest = (room ?: "")
@@ -22,18 +22,30 @@ data class Lesson(
         return if (!isRemote) rest
         else if (rest.isNotEmpty()) "дистанционно + $rest" else "дистанционно"
     }
+
+    companion object {
+        // Компилируется один раз: раньше Regex пересоздавался на каждый доступ.
+        private val REMOTE = Regex("(^|,\\s*)ДО(\\s*,|$)")
+    }
 }
 
 data class Slot(
-    val time: String,        // "8:00–9:35"
+    val time: String,        // "8:00–9:35" (или с обычным дефисом)
     val lessons: List<Lesson>
 ) {
-    val fromMin: Int? get() = parseMin(time.substringBefore("–").ifBlank { time.substringBefore("-") })
-    val toMin: Int? get() = parseMin(time.substringAfter("–").ifBlank { time.substringAfter("-") })
+    val fromMin: Int? get() = parseMin(parts().getOrNull(0))
+    val toMin: Int? get() = parseMin(parts().getOrNull(1))
 
-    private fun parseMin(s: String): Int? {
-        val m = Regex("(\\d{1,2}):(\\d{2})").find(s.trim()) ?: return null
+    private fun parts(): List<String> = time.split('–', '-')
+
+    private fun parseMin(s: String?): Int? {
+        if (s == null) return null
+        val m = TIME.find(s.trim()) ?: return null
         return m.groupValues[1].toInt() * 60 + m.groupValues[2].toInt()
+    }
+
+    companion object {
+        private val TIME = Regex("(\\d{1,2}):(\\d{2})")
     }
 }
 

@@ -74,9 +74,13 @@ object Notifier {
             alarm(ctx, ACTION_TICK, REQ_TICK)
         )
 
-        // Точное напоминание — только если уведомления включены и разрешены.
-        if (!Store.getNotificationsEnabled(ctx) || !canPost(ctx)) {
-            am.cancel(alarm(ctx, ACTION_LEAD, REQ_LEAD))
+        val leadPi = alarm(ctx, ACTION_LEAD, REQ_LEAD)
+
+        // Точное напоминание — только если уведомления включены, разрешены
+        // и группа ВЫБРАНА: молчаливый дефолт "1" не должен будить телефон
+        // в свежей установке, где пользователь ещё ничего не выбирал.
+        if (!Store.getNotificationsEnabled(ctx) || !canPost(ctx) || !Store.getSelChosen(ctx)) {
+            am.cancel(leadPi)
             return
         }
 
@@ -89,24 +93,28 @@ object Notifier {
         val next = ScheduleLogic.nextLesson(data, group, sub, week, cal, nowMin()) ?: return
         val startsIn = next.startsInMin ?: return          // напоминаем только про сегодняшние пары
 
-        val pi = alarm(ctx, ACTION_LEAD, REQ_LEAD)
-        val fireAt = System.currentTimeMillis() + (startsIn - lead).coerceAtLeast(0) * 60_000L
-        // Если до пары осталось меньше lead — сработает сразу: напомнить
-        // с опозданием лучше, чем промолчать (id уведомления стабилен,
-        // дублей по той же паре не будет).
-        //
-        // Exact, когда система позволяет: в Doze неточный будильник может
-        // опоздать на несколько минут — для «за 5 минут до пары» это критично.
-        if (Build.VERSION.SDK_INT >= 31 && am.canScheduleExactAlarms()) {
-            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAt, pi)
+        // Пара уже внутри окна напоминания: будильник «на сейчас» создал бы
+        // цикл «сработал → перепланировался на сейчас» — RTC_WAKEUP крутился бы
+        // весь lead-период. Просто напоминаем сейчас, тик перепроверит.
+        val delayMin = startsIn - lead
+        if (delayMin <= 0) {
+            notifyIfSoon(ctx)
+            return
+        }
+
+        val fireAt = System.currentTimeMillis() + delayMin * 60_000L
+        // Exact всегда, когда система позволяет: до API 31 разрешение не нужно,
+        // там точные будильники «просто работают» (в Doze неточные опаздывают).
+        if (Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()) {
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAt, leadPi)
         } else {
-            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAt, pi)
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAt, leadPi)
         }
     }
 
     /** Показать напоминание о паре, до которой осталось <= lead минут. */
     fun notifyIfSoon(ctx: Context) {
-        if (!Store.getNotificationsEnabled(ctx) || !canPost(ctx)) return
+        if (!Store.getNotificationsEnabled(ctx) || !canPost(ctx) || !Store.getSelChosen(ctx)) return
 
         val data = Store.loadData(ctx) ?: return
         val cal = Store.loadCal(ctx)
@@ -114,23 +122,36 @@ object Notifier {
         val week = Store.getManualWeek(ctx) ?: ScheduleLogic.autoWeek(cal)
         val lead = Store.getNotifMinutes(ctx).toLong()
 
-        val next = ScheduleLogic.nextLesson(data, group, sub, week, cal, nowMin()) ?: return
-        if (next.daysAhead != 0) return
-        val startsIn = next.startsInMin ?: return
-        if (startsIn > lead) return
+        val next = ScheduleLogic.nextLesson(data, group, sub, week, cal, nowMin())
+        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val inWindow = next != null && next.daysAhead == 0 &&
+                next.startsInMin != null && next.startsInMin <= lead
+
+        if (!inWindow) {
+            // Окно напоминания прошло (пара началась) — снимаем прошлое
+            // уведомление: иначе «Через 5 мин» висит в шторке вчерашним,
+            // setAutoCancel срабатывает только по тапу.
+            val old = Store.takeLastNoteId(ctx)
+            if (old != 0) nm.cancel(old)
+            return
+        }
+        val nextLesson = next ?: return
+        val startsIn = nextLesson.startsInMin ?: return
 
         ensureChannel(ctx)
         val open = PendingIntent.getActivity(
             ctx, 0, Intent(ctx, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val title = if (startsIn <= 0) ctx.getString(R.string.notif_starting)
-        else ctx.getString(R.string.notif_in_minutes, startsIn, next.lesson.subject)
-        val text = buildString {
-            append(next.time)
-            next.lesson.roomDisplay().takeIf { it.isNotBlank() }?.let { append(" · $it") }
-            next.lesson.teacher?.let { append(" · $it") }
-        }
+        // Тема пары всегда в заголовке: «Пара начинается» без названия
+        // не давало понять, какая именно пара началась.
+        val title = if (startsIn <= 0) ctx.getString(R.string.notif_starting, nextLesson.lesson.subject)
+        else ctx.getString(R.string.notif_in_minutes, startsIn, nextLesson.lesson.subject)
+        val text = listOfNotNull(
+            nextLesson.time,
+            nextLesson.lesson.roomDisplay().takeIf { it.isNotBlank() },
+            nextLesson.lesson.teacher
+        ).joinToString(" · ")
         val notification = NotificationCompat.Builder(ctx, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
@@ -140,11 +161,14 @@ object Notifier {
             .setOnlyAlertOnce(true)
             .build()
 
-        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         // Стабильный id на конкретную пару: каждая пара сигналит сама по себе —
         // напоминание о следующей паре не «затирает» молча предыдущее.
         // Повторные тики по той же паре обновляют её же уведомление.
-        val noteId = (ScheduleLogic.today().toString() + next.time + next.lesson.subject).hashCode()
+        val noteId = (ScheduleLogic.today().toString() + nextLesson.time + nextLesson.lesson.subject).hashCode()
+        // Прошлое напоминание (другая пара) снимаем: та пара уже началась.
+        val old = Store.takeLastNoteId(ctx)
+        if (old != 0 && old != noteId) nm.cancel(old)
+        Store.setLastNoteId(ctx, noteId)
         nm.notify(noteId, notification)
     }
 }
@@ -156,15 +180,33 @@ object Notifier {
 class TickReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val ctx = context.applicationContext
-        when (intent.action) {
-            Notifier.ACTION_LEAD -> Notifier.notifyIfSoon(ctx)
-            Notifier.ACTION_TICK -> {
-                TodayWidgetProvider.updateAll(ctx)
-                TimerWidgetProvider.updateAll(ctx)
-                Notifier.notifyIfSoon(ctx)
+        // goAsync + фоновый поток: чтение/парсинг data.json не на главном,
+        // будильники переставляются даже при исключении в обработке тика
+        // (иначе «пульс» умирал бы до следующего ребута).
+        val pending = goAsync()
+        Thread {
+            try {
+                runCatching {
+                    when (intent.action) {
+                        Notifier.ACTION_LEAD -> {
+                            Notifier.notifyIfSoon(ctx)
+                            // Виджет «через 15 мин» должен обновиться сразу,
+                            // а не ждать следующего тика.
+                            TodayWidgetProvider.updateAll(ctx)
+                            TimerWidgetProvider.updateAll(ctx)
+                        }
+                        Notifier.ACTION_TICK -> {
+                            TodayWidgetProvider.updateAll(ctx)
+                            TimerWidgetProvider.updateAll(ctx)
+                            Notifier.notifyIfSoon(ctx)
+                        }
+                    }
+                }
+                Notifier.scheduleNext(ctx)
+            } finally {
+                pending.finish()
             }
-        }
-        Notifier.scheduleNext(ctx)
+        }.start()
     }
 }
 

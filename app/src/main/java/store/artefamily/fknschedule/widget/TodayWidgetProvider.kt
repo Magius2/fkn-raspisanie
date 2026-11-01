@@ -17,8 +17,8 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 /**
- * Виджет «Сегодня»: 2 ближайшие пары (или первая пара завтрашнего дня).
- * Тап открывает приложение.
+ * Виджет «Сегодня»: ближайшая пара (или первая пара завтрашнего дня)
+ * с мета-строкой аудитории/преподавателя. Тап открывает приложение.
  */
 class TodayWidgetProvider : AppWidgetProvider() {
 
@@ -38,7 +38,11 @@ class TodayWidgetProvider : AppWidgetProvider() {
         fun updateAll(ctx: Context) {
             val mgr = AppWidgetManager.getInstance(ctx)
             val ids = mgr.getAppWidgetIds(ComponentName(ctx, TodayWidgetProvider::class.java))
-            for (id in ids) mgr.updateAppWidget(id, render(ctx))
+            if (ids.isEmpty()) return
+            // RemoteViews один раз на все инстансы: раньше каждый виджет
+            // заново читал и парсил data.json с диска.
+            val views = render(ctx)
+            for (id in ids) mgr.updateAppWidget(id, views)
         }
 
         private fun render(ctx: Context): RemoteViews {

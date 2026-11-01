@@ -21,6 +21,7 @@
     <!-- Главный экран -->
     <string name="week_holiday">🌴 %1$s — занятий нет</string>
     <string name="week_current">Текущая неделя — %1$s</string>
+    <string name="week_shown">" · показан %1$s"</string>
     <string name="week_by_calendar">" (по календарю)"</string>
     <string name="updated_at">данные от %1$s</string>
     <string name="offline_updated">нет связи · данные от %1$s</string>
@@ -32,7 +33,7 @@
     <string name="settings_notif_on">Напоминания: включены</string>
     <string name="settings_notif_off">Напоминания: выключены</string>
     <string name="settings_notif_no_perm">" (нет разрешения)"</string>
-    <string name="settings_lead">Напомнить за: %1$s мин</string>
+    <string name="settings_lead">Напомнить за: %1$d мин</string>
     <string name="settings_refresh">Проверить обновление расписания</string>
     <string name="settings_lead_title">Напомнить за (минут)</string>
 
@@ -58,14 +59,16 @@
 
     <!-- Превью виджетов в пикере -->
     <string name="widget_preview_title">Группа 8 · числитель</string>
+    <string name="widget_preview_today_line">Сегодня · Дифференциальные уравнения</string>
+    <string name="widget_preview_in_full">через 2 ч 5 мин</string>
+    <string name="widget_preview_room">414 · Иванов А.В.</string>
+    <string name="widget_preview_until">до пары · 10:55</string>
     <string name="widget_preview_lesson">Дифференциальные уравнения</string>
     <string name="widget_preview_in">2 ч 5 мин</string>
-    <string name="widget_preview_room">ауд. 414</string>
-    <string name="widget_preview_until">до пары · 10:55</string>
 
     <!-- Уведомления -->
     <string name="notif_channel_name">Ближайшие пары</string>
     <string name="notif_channel_desc">Напоминания о начале пар</string>
-    <string name="notif_starting">Пара начинается</string>
+    <string name="notif_starting">Пара начинается — %1$s</string>
     <string name="notif_in_minutes">Через %1$d мин — %2$s</string>
 </resources>
