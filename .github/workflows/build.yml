@@ -50,3 +50,25 @@ jobs:
         with:
           name: fkn-raspisanie-release-unsigned
           path: app/build/outputs/apk/release/*.apk
+
+      # Ловит две реальные поломки, которые уже случались:
+      #  1) R8 вырезал сетевой код (APK без URL и без HttpURLConnection);
+      #  2) из манифеста пропал InitializationProvider — WorkManager не
+      #     инициализируется и приложение падает на старте.
+      - name: Smoke-check release APK
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          unzip -p "$APK" classes.dex > /tmp/app.dex
+
+          grep -qa "raspisanie.artefamily.online" /tmp/app.dex \
+            || { echo "::error::В dex нет URL расписания — сетевой код вырезан"; exit 1; }
+          grep -qa "HttpURLConnection" /tmp/app.dex \
+            || { echo "::error::В dex нет HttpURLConnection — загрузка расписания не работает"; exit 1; }
+          grep -qa "store/artefamily/fknschedule/sync/TickReceiver" /tmp/app.dex \
+            || { echo "::error::TickReceiver потерялся"; exit 1; }
+
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump xmltree "$APK" AndroidManifest.xml > /tmp/manifest.txt
+          grep -qa "androidx.startup.InitializationProvider" /tmp/manifest.txt \
+            || { echo "::error::InitializationProvider удалён — WorkManager не инициализируется"; exit 1; }
+          grep -qa "androidx.work.WorkManagerInitializer" /tmp/manifest.txt \
+            || { echo "::error::WorkManagerInitializer отсутствует — приложение упадёт на старте"; exit 1; }
