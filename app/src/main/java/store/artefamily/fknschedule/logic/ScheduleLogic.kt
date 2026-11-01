@@ -3,16 +3,14 @@ package store.artefamily.fknschedule.logic
 import store.artefamily.fknschedule.model.CalData
 import store.artefamily.fknschedule.model.Lesson
 import store.artefamily.fknschedule.model.ScheduleData
-import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.WeekFields
-import java.util.Locale
 
 /**
  * Логика недель числитель/знаменатель — зеркалит app.js сайта:
  * чётные ISO-недели = числитель, каникулы не отменяют тип недели,
- * воскресенье вечером показываем уже следующую неделю.
+ * воскресенье показываем уходящую неделю (переключение — в понедельник).
  */
 object ScheduleLogic {
 
@@ -22,9 +20,6 @@ object ScheduleLogic {
 
     fun isoWeek(date: LocalDate): Int =
         date.get(WeekFields.ISO.weekOfWeekBasedYear())
-
-    fun mondayOf(date: LocalDate): LocalDate =
-        date.with(DayOfWeek.MONDAY)
 
     /** Что действует в дату: 'ch' | 'zn' | 'holiday'. */
     fun resolveDay(date: LocalDate, cal: CalData?): Resolved {
@@ -106,10 +101,6 @@ object ScheduleLogic {
         return result
     }
 
-    /**
-     * Следующая пара: сегодня (если ещё не поздно) или в ближайшие дни.
-     * Возвращает null, если на этой неделе пар больше нет.
-     */
     data class NextLesson(
         val lesson: Lesson,
         val time: String,
@@ -118,39 +109,50 @@ object ScheduleLogic {
         val dow: Int
     )
 
+    /**
+     * Следующая пара: сегодня (если ещё не поздно) или в ближайшие дни.
+     * Праздники и каникулы из cal.json учитываются: отменённый день не
+     * становится «следующей парой» — напоминания и виджеты его пропускают.
+     * Возвращает null, если пар больше нет.
+     */
     fun nextLesson(data: ScheduleData, group: String, sub: String?, week: String, cal: CalData?, nowMin: Int): NextLesson? {
         val today = today()
         val todayDow = today.dayOfWeek.value
 
-        // Сегодня
-        val todayList = lessonsFor(data, group, sub, week, todayDow)
-        for ((slot, l) in todayList) {
-            val from = slot.fromMin
-            if (from != null && nowMin < from) {
-                return NextLesson(l, slot.time, 0, (from - nowMin).toLong(), todayDow)
+        // Сегодня — если это не праздник из cal.json
+        if (resolveDay(today, cal).kind != "holiday") {
+            val todayList = lessonsFor(data, group, sub, week, todayDow)
+            for ((slot, l) in todayList) {
+                val from = slot.fromMin
+                if (from != null && nowMin < from) {
+                    return NextLesson(l, slot.time, 0, (from - nowMin).toLong(), todayDow)
+                }
             }
         }
 
-        // Ближайшие дни до конца «недели» (до воскресенья)
+        // Ближайшие дни до конца недели — та же отображаемая неделя
+        // (учитывает ручной выбор), праздничные дни пропускаем.
         for (offset in 1..(7 - todayDow)) {
             val date = today.plusDays(offset.toLong())
-            // Воскресенье вечером расписание уже следующей недели
-            val wk = if (offset == 7 - todayDow && todayDow == 0) autoWeek(cal) else week
             if (date.dayOfWeek.value == 7) continue
-            val list = lessonsFor(data, group, sub, wk, date.dayOfWeek.value)
+            if (resolveDay(date, cal).kind == "holiday") continue
+            val list = lessonsFor(data, group, sub, week, date.dayOfWeek.value)
             if (list.isNotEmpty()) {
                 val (slot, l) = list.first()
                 return NextLesson(l, slot.time, offset, null, date.dayOfWeek.value)
             }
         }
 
-        // Если и на следующей неделе пусто — берём её первым днём с парами
-        val nextWeek = if (week == "ch") "zn" else "ch"
-        for (dow in 1..6) {
-            val list = lessonsFor(data, group, sub, nextWeek, dow)
+        // Следующая ISO-неделя: с её понедельника, каждый день — свой тип
+        // из cal.json (переносы, принудительный числитель/знаменатель).
+        val nextMonday = today.plusDays((8 - todayDow).toLong())
+        for (i in 0..5) {
+            val date = nextMonday.plusDays(i.toLong())
+            if (resolveDay(date, cal).kind == "holiday") continue
+            val list = lessonsFor(data, group, sub, resolveDay(date, cal).kind, date.dayOfWeek.value)
             if (list.isNotEmpty()) {
                 val (slot, l) = list.first()
-                return NextLesson(l, slot.time, 7 - todayDow + dow, null, dow)
+                return NextLesson(l, slot.time, (8 - todayDow) + i, null, date.dayOfWeek.value)
             }
         }
         return null

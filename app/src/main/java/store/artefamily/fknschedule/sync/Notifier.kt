@@ -87,12 +87,20 @@ object Notifier {
 
         val next = ScheduleLogic.nextLesson(data, group, sub, week, cal, nowMin()) ?: return
         val startsIn = next.startsInMin ?: return          // напоминаем только про сегодняшние пары
-        if (next.daysAhead != 0) return
 
+        val pi = alarm(ctx, ACTION_LEAD, REQ_LEAD)
         val fireAt = System.currentTimeMillis() + (startsIn - lead).coerceAtLeast(0) * 60_000L
-        // Пары, до которых осталось меньше lead минут, не напоминаем задним числом:
-        // пользователь уже в пути. Уведомление им покажет тик, если пара вот-вот.
-        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAt, alarm(ctx, ACTION_LEAD, REQ_LEAD))
+        // Если до пары осталось меньше lead — сработает сразу: напомнить
+        // с опозданием лучше, чем промолчать (id уведомления стабилен,
+        // дублей по той же паре не будет).
+        //
+        // Exact, когда система позволяет: в Doze неточный будильник может
+        // опоздать на несколько минут — для «за 5 минут до пары» это критично.
+        if (Build.VERSION.SDK_INT >= 31 && am.canScheduleExactAlarms()) {
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAt, pi)
+        } else {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAt, pi)
+        }
     }
 
     /** Показать напоминание о паре, до которой осталось <= lead минут. */
@@ -131,8 +139,11 @@ object Notifier {
             .build()
 
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        // Один и тот же id на пару: повторный тик обновляет уведомление, а не плодит копии.
-        nm.notify(42, notification)
+        // Стабильный id на конкретную пару: каждая пара сигналит сама по себе —
+        // напоминание о следующей паре не «затирает» молча предыдущее.
+        // Повторные тики по той же паре обновляют её же уведомление.
+        val noteId = (ScheduleLogic.today().toString() + next.time + next.lesson.subject).hashCode()
+        nm.notify(noteId, notification)
     }
 }
 

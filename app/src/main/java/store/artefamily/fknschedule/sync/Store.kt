@@ -1,6 +1,7 @@
 package store.artefamily.fknschedule.sync
 
 import android.content.Context
+import store.artefamily.fknschedule.logic.ScheduleLogic
 import store.artefamily.fknschedule.model.CalData
 import store.artefamily.fknschedule.model.ScheduleData
 import java.io.File
@@ -11,18 +12,50 @@ import java.io.File
  */
 object Store {
     private const val PREFS = "prefs"
-    private const val KEY_DATA = "data.json"
-    private const val KEY_CAL = "cal.json"
+    private const val FILE_DATA = "data.json"
+    private const val FILE_CAL = "cal.json"
     private const val SEL = "sel"                 // "8" или "8.2"
     private const val WEEK = "week"               // ручной выбор
     private const val WEEK_ISO = "week.iso"
     const val BASE_URL = "https://raspisanie.artefamily.online"
 
-    fun dataFile(ctx: Context) = File(ctx.filesDir, KEY_DATA)
-    fun calFile(ctx: Context) = File(ctx.filesDir, KEY_CAL)
+    fun dataFile(ctx: Context) = File(ctx.filesDir, FILE_DATA)
+    fun calFile(ctx: Context) = File(ctx.filesDir, FILE_CAL)
 
-    fun saveData(ctx: Context, json: String) = dataFile(ctx).writeText(json)
-    fun saveCal(ctx: Context, json: String) = calFile(ctx).writeText(json)
+    /**
+     * Сохраняет расписание. Сначала проверяем, что JSON разбирается,
+     * потом пишем атомарно: плохой ответ сервера не может затереть
+     * последний рабочий офлайн-кэш.
+     */
+    fun saveData(ctx: Context, json: String) {
+        ScheduleData.fromJson(json) // невалидный JSON бросит исключение ДО записи
+        atomicWrite(dataFile(ctx), json)
+    }
+
+    fun saveCal(ctx: Context, json: String) {
+        CalData.fromJson(json)
+        atomicWrite(calFile(ctx), json)
+    }
+
+    /**
+     * Атомарная запись (tmp + rename): читатели — приложение, виджеты,
+     * тик-ресивер, WorkManager — видят либо старый файл целиком, либо
+     * новый целиком, но никогда наполовину записанный.
+     */
+    private fun atomicWrite(target: File, text: String) {
+        val tmp = File(target.parentFile, target.name + ".tmp")
+        try {
+            tmp.writeText(text)
+            if (!tmp.renameTo(target)) {
+                // rename поверх существующего файла срабатывает не везде —
+                // тогда классическая пара delete + rename.
+                target.delete()
+                if (!tmp.renameTo(target)) tmp.delete()
+            }
+        } finally {
+            tmp.delete()
+        }
+    }
 
     fun loadData(ctx: Context): ScheduleData? = try {
         if (dataFile(ctx).exists()) ScheduleData.fromJson(dataFile(ctx).readText()) else null
@@ -41,7 +74,7 @@ object Store {
         val w = prefs(ctx).getString(WEEK, null) ?: return null
         val iso = prefs(ctx).getString(WEEK_ISO, null) ?: return null
         // Ручной выбор действителен только на текущей неделе
-        if (iso != ScheduleLogicHelper.currentIso().toString()) {
+        if (iso != ScheduleLogic.isoWeek(ScheduleLogic.today()).toString()) {
             clearManualWeek(ctx)
             return null
         }
@@ -50,7 +83,7 @@ object Store {
 
     fun setManualWeek(ctx: Context, w: String) = prefs(ctx).edit()
         .putString(WEEK, w)
-        .putString(WEEK_ISO, ScheduleLogicHelper.currentIso().toString())
+        .putString(WEEK_ISO, ScheduleLogic.isoWeek(ScheduleLogic.today()).toString())
         .apply()
 
     fun clearManualWeek(ctx: Context) = prefs(ctx).edit()
@@ -61,10 +94,4 @@ object Store {
 
     fun getNotifMinutes(ctx: Context): Int = prefs(ctx).getInt("notif_min", 15)
     fun setNotifMinutes(ctx: Context, v: Int) = prefs(ctx).edit().putInt("notif_min", v).apply()
-}
-
-private object ScheduleLogicHelper {
-    fun currentIso(): Int =
-        java.time.LocalDate.now(java.time.ZoneId.of("Europe/Moscow"))
-            .get(java.time.temporal.WeekFields.ISO.weekOfWeekBasedYear())
 }

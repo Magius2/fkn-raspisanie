@@ -117,18 +117,38 @@ class MainActivity : AppCompatActivity() {
         if (loading) return
         loading = true
         binding.swipe.isRefreshing = force
-        binding.progress.visibility = if (force) View.VISIBLE else View.GONE
+        binding.progress.visibility = if (data == null) View.VISIBLE else View.GONE
 
         scope.launch {
-            val okData = withContext(Dispatchers.IO) {
-                fetchAndSave("${Store.BASE_URL}/data.json") { Store.saveData(this@MainActivity, it) }
-            }
-            withContext(Dispatchers.IO) {
-                fetchAndSave("${Store.BASE_URL}/cal.json") { Store.saveCal(this@MainActivity, it) }
+            // 1) Кэш — сразу: экран оживает даже без сети (метро, лифт, кампус).
+            //    Раньше кэш грузился только ПОСЛЕ сетевых таймаутов —
+            //    до минуты пустого экрана при живой офлайн-копии.
+            if (data == null) {
+                val cached = withContext(Dispatchers.IO) {
+                    Store.loadData(this@MainActivity) to Store.loadCal(this@MainActivity)
+                }
+                val cachedData = cached.first
+                if (cachedData != null && data == null) {
+                    data = cachedData
+                    cal = cached.second
+                    setupControls()
+                    binding.toolbar.subtitle = "${cachedData.title} · ${cachedData.subtitle}"
+                    render()
+                }
             }
 
-            data = Store.loadData(this@MainActivity)
-            cal = Store.loadCal(this@MainActivity)
+            // 2) Сеть: оба файла параллельно, а не друг за другом.
+            val (okData, okCal) = withContext(Dispatchers.IO) {
+                coroutineScope {
+                    val d = async { fetchAndSave("${Store.BASE_URL}/data.json") { Store.saveData(this@MainActivity, it) } }
+                    val c = async { fetchAndSave("${Store.BASE_URL}/cal.json") { Store.saveCal(this@MainActivity, it) } }
+                    d.await() to c.await()
+                }
+            }
+
+            // 3) Перечитываем с диска (IO, не на главном потоке) и перерисовываем.
+            data = withContext(Dispatchers.IO) { Store.loadData(this@MainActivity) }
+            cal = withContext(Dispatchers.IO) { Store.loadCal(this@MainActivity) }
             loading = false
             binding.swipe.isRefreshing = false
             binding.progress.visibility = View.GONE
@@ -138,7 +158,7 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this@MainActivity, R.string.error_load, Toast.LENGTH_LONG).show()
                 return@launch
             }
-            if (okData) refreshWidgets()
+            if (okData || okCal) refreshWidgets()
             setupControls()
             binding.toolbar.subtitle = "${d.title} · ${d.subtitle}"
             render()
@@ -183,12 +203,9 @@ class MainActivity : AppCompatActivity() {
         val auto = ScheduleLogic.autoWeek(cal)
         val todayDow = ScheduleLogic.today().dayOfWeek.value
 
-        // Воскресенье без ручного выбора — показываем уже следующую неделю (как на сайте).
-        val shownWeek = when {
-            manual != null -> manual
-            todayDow == 7 -> auto
-            else -> auto
-        }
+        // Воскресенье — фича: показываем уходящую неделю (как на сайте),
+        // автоматическое переключение на новую происходит в понедельник.
+        val shownWeek = manual ?: auto
 
         bindingWeek = true
         binding.weekToggle.check(if (shownWeek == "ch") R.id.weekCh else R.id.weekZn)
@@ -208,8 +225,10 @@ class MainActivity : AppCompatActivity() {
                     append(" · показан ")
                     append(ScheduleLogic.weekNameAccusative(manual))
                 }
+                // Тип недели на сегодня задан календарём (каникулы, переносы),
+                // а не чётностью ISO — говорим об этом честно.
                 if (ScheduleLogic.resolveDay(ScheduleLogic.today(), cal).src != "авто") {
-                    append(" (задано вручную)")
+                    append(" (по календарю)")
                 }
             }
             append(" · ")

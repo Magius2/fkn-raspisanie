@@ -12,3 +12,6 @@
 *.keystore
 !debug.keystore
 app/keystore.properties
+
+# Промпты для ИИ-ревью — рабочие заметки, не для репозитория
+/ai-review-prompts.md
