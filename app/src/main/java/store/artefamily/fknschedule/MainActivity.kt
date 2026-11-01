@@ -287,7 +287,7 @@ class MainActivity : AppCompatActivity() {
                         if (Store.getNotificationsEnabled(this) && !Notifier.canPost(this)) {
                             notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                         } else {
-                            Notifier.scheduleNext(this)
+                            scope.launch(Dispatchers.IO) { Notifier.scheduleNext(this@MainActivity) }
                         }
                         reopenSettings()
                     }
@@ -298,7 +298,7 @@ class MainActivity : AppCompatActivity() {
                             .setTitle(R.string.settings_lead_title)
                             .setSingleChoiceItems(options, current) { dlg, i ->
                                 Store.setNotifMinutes(this, options[i].toInt())
-                                Notifier.scheduleNext(this)
+                                scope.launch(Dispatchers.IO) { Notifier.scheduleNext(this@MainActivity) }
                                 dlg.dismiss()
                             }
                             // И после выбора, и после отмены — назад в настройки,

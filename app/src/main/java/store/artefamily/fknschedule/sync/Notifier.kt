@@ -202,7 +202,12 @@ class TickReceiver : BroadcastReceiver() {
                         }
                     }
                 }
-                Notifier.scheduleNext(ctx)
+                // Будильники переставляем даже при исключении в обработке тика
+                // (иначе «пульс» умирал бы до следующего ребута).
+                // runCatching и здесь: необработанное исключение в этом
+                // потоке роняет процесс (например, SecurityException от
+                // setExactAndAllowWhileIdle при отозванном разрешении).
+                runCatching { Notifier.scheduleNext(ctx) }
             } finally {
                 pending.finish()
             }
