@@ -57,7 +57,8 @@ jobs:
       #     инициализируется и приложение падает на старте.
       - name: Smoke-check release APK
         run: |
-          APK=app/build/outputs/apk/release/app-release.apk
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -n1)
+          echo "проверяю $APK"
           unzip -p "$APK" classes.dex > /tmp/app.dex
 
           grep -qa "raspisanie.artefamily.online" /tmp/app.dex \
