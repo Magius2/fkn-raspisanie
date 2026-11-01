@@ -8,6 +8,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Сборка ничего не публикует: релизы собираются и подписываются локально
+# (ключ не хранится в GitHub), поэтому токену хватает прав на чтение.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -45,12 +50,3 @@ jobs:
         with:
           name: fkn-raspisanie-release-unsigned
           path: app/build/outputs/apk/release/*.apk
-
-      - name: Create GitHub Release on tag
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: app/build/outputs/apk/debug/*.apk
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
