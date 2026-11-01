@@ -17,25 +17,31 @@ import store.artefamily.fknschedule.R
 import store.artefamily.fknschedule.logic.ScheduleLogic
 import store.artefamily.fknschedule.widget.TodayWidgetProvider
 import store.artefamily.fknschedule.widget.TimerWidgetProvider
-import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.ZoneId
 
 /**
- * Push-уведомления «до пары N минут» + обновление виджетов в фоне.
- * Планируется через AlarmManager (точное время начала пары − N минут).
+ * Уведомления «до пары N минут» и регулярное обновление виджетов.
+ *
+ * Два независимых будильника (разные requestCode — иначе второй затирал бы
+ * первый, у PendingIntent идентичность определяется requestCode+action):
+ *   REQ_TICK      — «пульс» каждые 15 минут: виджеты, «сейчас», перепланирование;
+ *   REQ_LEAD      — точное срабатывание за N минут до начала пары.
  */
 object Notifier {
     const val CHANNEL_ID = "lessons"
     const val ACTION_TICK = "store.artefamily.fknschedule.ACTION_TICK"
+    const val ACTION_LEAD = "store.artefamily.fknschedule.ACTION_LEAD"
+
+    private const val REQ_TICK = 1001
+    private const val REQ_LEAD = 1002
+    private const val TICK_INTERVAL_MS = 15 * 60_000L
 
     fun ensureChannel(ctx: Context) {
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= 26) {
-            nm.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Ближайшие пары", NotificationManager.IMPORTANCE_DEFAULT)
-                    .apply { description = "Напоминания о начале пар" })
-        }
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, "Ближайшие пары", NotificationManager.IMPORTANCE_DEFAULT)
+                .apply { description = "Напоминания о начале пар" }
+        )
     }
 
     private fun nowMin(): Int {
@@ -43,84 +49,106 @@ object Notifier {
         return now.hour * 60 + now.minute
     }
 
-    fun scheduleNext(ctx: Context) {
-        if (!Store.getNotificationsEnabled(ctx)) return
-        val data = Store.loadData(ctx) ?: return
-        val cal = Store.loadCal(ctx)
-        val sel = Store.getSel(ctx)
-        val (group, sub) = parseSel(sel)
-        val week = Store.getManualWeek(ctx) ?: ScheduleLogic.autoWeek(cal)
+    private fun canPost(ctx: Context): Boolean =
+        Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(
+            ctx, Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
 
-        val next = ScheduleLogic.nextLesson(data, group, sub, week, cal, nowMin()) ?: return
-        val minutes = Store.getNotifMinutes(ctx)
-
-        val whenMs = if (next.daysAhead == 0 && next.startsInMin != null) {
-            val startIn = next.startsInMin
-            System.currentTimeMillis() + (startIn - minutes) * 60_000L
-        } else null
-
-        val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(ctx, TickReceiver::class.java).setAction(ACTION_TICK)
-        val pi = PendingIntent.getBroadcast(ctx, 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-
-        // Тик каждые 30 минут: обновляет виджеты и следит за следующей парой
-        val tick = System.currentTimeMillis() + 30 * 60_000L
-        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, tick, pi)
-
-        if (whenMs != null) {
-            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, whenMs, pi)
-        }
+    private fun alarm(ctx: Context, action: String, req: Int): PendingIntent {
+        val intent = Intent(ctx, TickReceiver::class.java).setAction(action)
+        return PendingIntent.getBroadcast(
+            ctx, req, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 
-    private fun parseTime(s: String): Int {
-        val m = Regex("(\\d{1,2}):(\\d{2})").find(s) ?: return 0
-        return m.groupValues[1].toInt() * 60 + m.groupValues[2].toInt()
+    /** Пересчитать и переставить будильники. Вызывается при старте, смене группы и после тика. */
+    fun scheduleNext(ctx: Context) {
+        val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+        // «Пульс»: обновляет виджеты, даже если пользователь ничего не открывал.
+        am.setAndAllowWhileIdle(
+            AlarmManager.RTC_WAKEUP,
+            System.currentTimeMillis() + TICK_INTERVAL_MS,
+            alarm(ctx, ACTION_TICK, REQ_TICK)
+        )
+
+        // Точное напоминание — только если уведомления включены и разрешены.
+        if (!Store.getNotificationsEnabled(ctx) || !canPost(ctx)) {
+            am.cancel(alarm(ctx, ACTION_LEAD, REQ_LEAD))
+            return
+        }
+
+        val data = Store.loadData(ctx) ?: return
+        val cal = Store.loadCal(ctx)
+        val (group, sub) = parseSel(Store.getSel(ctx))
+        val week = Store.getManualWeek(ctx) ?: ScheduleLogic.autoWeek(cal)
+        val lead = Store.getNotifMinutes(ctx).toLong()
+
+        val next = ScheduleLogic.nextLesson(data, group, sub, week, cal, nowMin()) ?: return
+        val startsIn = next.startsInMin ?: return          // напоминаем только про сегодняшние пары
+        if (next.daysAhead != 0) return
+
+        val fireAt = System.currentTimeMillis() + (startsIn - lead).coerceAtLeast(0) * 60_000L
+        // Пары, до которых осталось меньше lead минут, не напоминаем задним числом:
+        // пользователь уже в пути. Уведомление им покажет тик, если пара вот-вот.
+        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAt, alarm(ctx, ACTION_LEAD, REQ_LEAD))
+    }
+
+    /** Показать напоминание о паре, до которой осталось <= lead минут. */
+    fun notifyIfSoon(ctx: Context) {
+        if (!Store.getNotificationsEnabled(ctx) || !canPost(ctx)) return
+
+        val data = Store.loadData(ctx) ?: return
+        val cal = Store.loadCal(ctx)
+        val (group, sub) = parseSel(Store.getSel(ctx))
+        val week = Store.getManualWeek(ctx) ?: ScheduleLogic.autoWeek(cal)
+        val lead = Store.getNotifMinutes(ctx).toLong()
+
+        val next = ScheduleLogic.nextLesson(data, group, sub, week, cal, nowMin()) ?: return
+        if (next.daysAhead != 0) return
+        val startsIn = next.startsInMin ?: return
+        if (startsIn > lead) return
+
+        ensureChannel(ctx)
+        val open = PendingIntent.getActivity(
+            ctx, 0, Intent(ctx, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val title = if (startsIn <= 0) "Пара начинается" else "Через $startsIn мин — ${next.lesson.subject}"
+        val text = buildString {
+            append(next.time)
+            next.lesson.roomDisplay().takeIf { it.isNotBlank() }?.let { append(" · $it") }
+            next.lesson.teacher?.let { append(" · $it") }
+        }
+        val notification = NotificationCompat.Builder(ctx, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .build()
+
+        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        // Один и тот же id на пару: повторный тик обновляет уведомление, а не плодит копии.
+        nm.notify(42, notification)
     }
 }
 
+/**
+ * Должен быть объявлен в AndroidManifest — иначе система не найдёт компонент
+ * и будильник сгорит впустую (именно так «пропадали» напоминания).
+ */
 class TickReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Notifier.ACTION_TICK) return
         val ctx = context.applicationContext
-        TodayWidgetProvider.updateAll(ctx)
-        TimerWidgetProvider.updateAll(ctx)
-
-        // Уведомление, если до пары <= N минут
-        if (Store.getNotificationsEnabled(ctx) &&
-            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) ==
-            PackageManager.PERMISSION_GRANTED || Build.VERSION.SDK_INT < 33) {
-            val data = Store.loadData(ctx) ?: return
-            val cal = Store.loadCal(ctx)
-            val sel = Store.getSel(ctx)
-            val (group, sub) = parseSel(sel)
-            val week = Store.getManualWeek(ctx) ?: ScheduleLogic.autoWeek(cal)
-            val now = LocalDateTime.now(ScheduleLogic.MSK)
-            val nowMin = now.hour * 60 + now.minute
-            val minutes = Store.getNotifMinutes(ctx)
-
-            val next = ScheduleLogic.nextLesson(data, group, sub, week, cal, nowMin) ?: return
-            if (next.daysAhead == 0 && next.startsInMin != null && next.startsInMin <= minutes) {
-                Notifier.ensureChannel(ctx)
-                val open = PendingIntent.getActivity(
-                    ctx, 0, Intent(ctx, MainActivity::class.java),
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-                val title = if (next.startsInMin == 0L) "Пара начинается!"
-                else "Через ${next.startsInMin} мин — ${next.lesson.subject}"
-                val text = buildString {
-                    append(next.time)
-                    next.lesson.roomDisplay().takeIf { it.isNotBlank() }?.let { append(" · $it") }
-                    next.lesson.teacher?.let { append(" · $it") }
-                }
-                val n = NotificationCompat.Builder(ctx, Notifier.CHANNEL_ID)
-                    .setSmallIcon(R.drawable.ic_notification)
-                    .setContentTitle(title)
-                    .setContentText(text)
-                    .setContentIntent(open)
-                    .setAutoCancel(true)
-                    .build()
-                val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                nm.notify(next.dow * 1000 + (next.startsInMin?.toInt() ?: 0), n)
+        when (intent.action) {
+            Notifier.ACTION_LEAD -> Notifier.notifyIfSoon(ctx)
+            Notifier.ACTION_TICK -> {
+                TodayWidgetProvider.updateAll(ctx)
+                TimerWidgetProvider.updateAll(ctx)
+                Notifier.notifyIfSoon(ctx)
             }
         }
         Notifier.scheduleNext(ctx)

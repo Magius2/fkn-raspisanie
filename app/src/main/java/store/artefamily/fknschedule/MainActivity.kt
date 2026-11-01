@@ -33,8 +33,17 @@ class MainActivity : AppCompatActivity() {
     private var cal: CalData? = null
     private var loading = false
 
+    /** Метки в выпадающем списке и их значения ("8", "8.2") — по одному индексу. */
+    private var groupLabels: List<String> = emptyList()
+    private var groupValues: List<String> = emptyList()
+
+    /** Защита от рекурсии: выставление кнопок недели не должно считаться выбором пользователя. */
+    private var bindingWeek = false
+
     private val notifPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) Notifier.scheduleNext(this)
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,7 +54,8 @@ class MainActivity : AppCompatActivity() {
         SyncWorker.enqueue(this)
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED) {
+            PackageManager.PERMISSION_GRANTED
+        ) {
             notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
@@ -54,35 +64,53 @@ class MainActivity : AppCompatActivity() {
 
         binding.groupSel.onItemClickListener = object : android.widget.AdapterView.OnItemClickListener {
             override fun onItemClick(p: android.widget.AdapterView<*>, v: View?, pos: Int, id: Long) {
-                val sel = binding.groupSel.adapter.getItem(pos) as String
-                val value = sel.substringAfter("Группа ").substringBefore(" ").let { g ->
-                    val m = Regex("(\\d+)\\.(\\d+)").find(sel)
-                    if (sel.contains("подгрупп")) "$g.${
-                        Regex("(\\d+)-я подгруппа").find(sel)?.groupValues?.get(1) ?: "1"
-                    }" else g
-                }
+                val value = groupValues.getOrNull(pos) ?: return
                 Store.setSel(this@MainActivity, value)
+                binding.groupSel.dismissDropDown()
                 render()
+                refreshWidgets()
             }
         }
 
-        binding.weekCh.setOnClickListener {
-            Store.setManualWeek(this, "ch"); render()
+        binding.weekToggle.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked || bindingWeek) return@addOnButtonCheckedListener
+            val week = when (checkedId) {
+                R.id.weekCh -> "ch"
+                R.id.weekZn -> "zn"
+                else -> return@addOnButtonCheckedListener
+            }
+            if (Store.getManualWeek(this) != week) {
+                Store.setManualWeek(this, week)
+            }
+            render()
+            refreshWidgets()
         }
-        binding.weekZn.setOnClickListener {
-            Store.setManualWeek(this, "zn"); render()
-        }
+
         binding.btnRefresh.setOnClickListener { refresh(true) }
         binding.btnSettings.setOnClickListener { showSettings() }
-
         binding.swipe.setOnRefreshListener { refresh(true) }
 
         refresh(false)
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Вернулись в приложение — день мог смениться, а виджеты отстать.
+        if (data != null) {
+            render()
+            refreshWidgets()
+        }
+    }
+
     override fun onDestroy() {
         scope.cancel()
         super.onDestroy()
+    }
+
+    private fun refreshWidgets() {
+        TodayWidgetProvider.updateAll(this)
+        TimerWidgetProvider.updateAll(this)
+        Notifier.scheduleNext(this)
     }
 
     private fun refresh(force: Boolean) {
@@ -92,26 +120,27 @@ class MainActivity : AppCompatActivity() {
         binding.progress.visibility = if (force) View.VISIBLE else View.GONE
 
         scope.launch {
-            val fetched = withContext(Dispatchers.IO) {
-                fetchAndSave("${Store.BASE_URL}/data.json") { Store.saveData(this@MainActivity, it) } or
-                        fetchAndSave("${Store.BASE_URL}/cal.json") { Store.saveCal(this@MainActivity, it) }
+            val okData = withContext(Dispatchers.IO) {
+                fetchAndSave("${Store.BASE_URL}/data.json") { Store.saveData(this@MainActivity, it) }
             }
+            withContext(Dispatchers.IO) {
+                fetchAndSave("${Store.BASE_URL}/cal.json") { Store.saveCal(this@MainActivity, it) }
+            }
+
             data = Store.loadData(this@MainActivity)
             cal = Store.loadCal(this@MainActivity)
             loading = false
             binding.swipe.isRefreshing = false
             binding.progress.visibility = View.GONE
 
-            if (data == null) {
+            val d = data
+            if (d == null) {
                 Toast.makeText(this@MainActivity, R.string.error_load, Toast.LENGTH_LONG).show()
                 return@launch
             }
-            if (fetched) {
-                TodayWidgetProvider.updateAll(this@MainActivity)
-                TimerWidgetProvider.updateAll(this@MainActivity)
-                Notifier.scheduleNext(this@MainActivity)
-            }
+            if (okData) refreshWidgets()
             setupControls()
+            binding.toolbar.subtitle = "${d.title} · ${d.subtitle}"
             render()
         }
     }
@@ -119,54 +148,72 @@ class MainActivity : AppCompatActivity() {
     private fun setupControls() {
         val d = data ?: return
         val sel = Store.getSel(this)
-        val options = mutableListOf<String>()
+
+        val labels = mutableListOf<String>()
         val values = mutableListOf<String>()
         for (g in d.groups) {
             val n = d.subgroups[g] ?: 0
             if (n == 0) {
-                options.add("Группа $g"); values.add(g)
+                labels.add("Группа $g"); values.add(g)
             } else {
-                options.add("Группа $g — все подгруппы"); values.add(g)
+                labels.add("Группа $g — все подгруппы"); values.add(g)
                 for (i in 1..n) {
-                    options.add("Группа $g — $i-я подгруппа"); values.add("$g.$i")
+                    labels.add("Группа $g — $i-я подгруппа"); values.add("$g.$i")
                 }
             }
         }
-        val pos = values.indexOf(sel).let { if (it >= 0) it else 0 }
-        val curSel = values.getOrNull(pos) ?: "1"
-        if (curSel != sel) Store.setSel(this, curSel)
+        groupLabels = labels
+        groupValues = values
 
-        binding.groupSel.setAdapter(ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, options))
-        binding.groupSel.setText(options.getOrNull(pos) ?: "", false)
-        binding.groupSel.dismissDropDown()
+        // Сохранённый выбор мог исчезнуть после обновления расписания — откатываемся на группу.
+        val pos = values.indexOf(sel).let { if (it >= 0) it else 0 }
+        val current = values.getOrNull(pos) ?: "1"
+        if (current != sel) Store.setSel(this, current)
+
+        binding.groupSel.setAdapter(
+            ArrayAdapter(this, android.R.layout.simple_list_item_1, labels)
+        )
+        binding.groupSel.setText(labels.getOrNull(pos) ?: "", false)
     }
 
     private fun render() {
         val d = data ?: return
-        val sel = Store.getSel(this)
-        val (group, sub) = parseSel(sel)
-        val week = Store.getManualWeek(this) ?: ScheduleLogic.autoWeek(cal)
-        val now = LocalDateTime.now(ScheduleLogic.MSK)
-        val nowMin = now.hour * 60 + now.minute
+        val (group, sub) = parseSel(Store.getSel(this))
+        val manual = Store.getManualWeek(this)
+        val auto = ScheduleLogic.autoWeek(cal)
         val todayDow = ScheduleLogic.today().dayOfWeek.value
 
-        // Воскресенье без ручного выбора — уже следующая неделя
-        val shownWeek = if (todayDow == 7 && Store.getManualWeek(this) == null)
-            ScheduleLogic.autoWeek(cal) else week
-
-        binding.weekCh.isSelected = shownWeek == "ch"
-        binding.weekZn.isSelected = shownWeek == "zn"
-
-        val holiday = ScheduleLogic.holidayToday(cal)
-        val title = if (holiday != null) {
-            "$holiday — занятий нет"
-        } else {
-            "Текущая неделя — ${ScheduleLogic.weekNameAccusative(shownWeek)}"
+        // Воскресенье без ручного выбора — показываем уже следующую неделю (как на сайте).
+        val shownWeek = when {
+            manual != null -> manual
+            todayDow == 7 -> auto
+            else -> auto
         }
+
+        bindingWeek = true
+        binding.weekToggle.check(if (shownWeek == "ch") R.id.weekCh else R.id.weekZn)
+        bindingWeek = false
+
+        val now = LocalDateTime.now(ScheduleLogic.MSK)
+        val nowMin = now.hour * 60 + now.minute
+        val holiday = ScheduleLogic.holidayToday(cal)
+
         binding.weekHint.text = buildString {
-            append(title)
+            if (holiday != null) {
+                append("🌴 $holiday — занятий нет")
+            } else {
+                append("Текущая неделя — ")
+                append(ScheduleLogic.weekNameAccusative(auto))
+                if (manual != null && manual != auto) {
+                    append(" · показан ")
+                    append(ScheduleLogic.weekNameAccusative(manual))
+                }
+                if (ScheduleLogic.resolveDay(ScheduleLogic.today(), cal).src != "авто") {
+                    append(" (задано вручную)")
+                }
+            }
             append(" · ")
-            append(d.updated)
+            append(ScheduleLogic.weekName(shownWeek))
         }
 
         val adapter = binding.recycler.adapter as DayAdapter
@@ -175,29 +222,40 @@ class MainActivity : AppCompatActivity() {
 
     private fun showSettings() {
         val items = arrayOf(
-            "Напоминания: ${if (Store.getNotificationsEnabled(this)) "вкл" else "выкл"}",
-            "За сколько минут: ${Store.getNotifMinutes(this)}",
-            "Источник: raspisanie.artefamily.online"
+            "Напоминания: ${if (Store.getNotificationsEnabled(this)) "включены" else "выключены"}",
+            "Напомнить за: ${Store.getNotifMinutes(this)} мин",
+            "Проверить обновление расписания"
         )
         android.app.AlertDialog.Builder(this)
             .setTitle(R.string.settings)
-            .setItems(items) { dialog, which ->
+            .setItems(items) { _, which ->
                 when (which) {
                     0 -> {
                         Store.setNotificationsEnabled(this, !Store.getNotificationsEnabled(this))
-                        Notifier.scheduleNext(this)
+                        if (Store.getNotificationsEnabled(this) &&
+                            Build.VERSION.SDK_INT >= 33 &&
+                            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+                            PackageManager.PERMISSION_GRANTED
+                        ) {
+                            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            Notifier.scheduleNext(this)
+                        }
                         showSettings()
                     }
                     1 -> {
-                        val options = arrayOf("10", "15", "30", "60")
+                        val options = arrayOf("5", "10", "15", "30", "60")
+                        val current = options.indexOf(Store.getNotifMinutes(this).toString())
                         android.app.AlertDialog.Builder(this)
-                            .setTitle("Минут до пары")
-                            .setItems(options) { _, i ->
+                            .setTitle("Напомнить за (минут)")
+                            .setSingleChoiceItems(options, current) { dlg, i ->
                                 Store.setNotifMinutes(this, options[i].toInt())
                                 Notifier.scheduleNext(this)
+                                dlg.dismiss()
                             }
                             .show()
                     }
+                    2 -> refresh(true)
                 }
             }
             .show()

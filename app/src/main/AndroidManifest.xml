@@ -57,6 +57,17 @@
             </intent-filter>
         </receiver>
 
+        <!-- Будильники: пульс виджетов и напоминание за N минут до пары.
+             Без этой записи AlarmManager не находит компонент и всё «молчит». -->
+        <receiver
+            android:name=".sync.TickReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="store.artefamily.fknschedule.ACTION_TICK" />
+                <action android:name="store.artefamily.fknschedule.ACTION_LEAD" />
+            </intent-filter>
+        </receiver>
+
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
